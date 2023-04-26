@@ -1,120 +1,40 @@
-use rayon::Scope;
-use std::cmp::Ordering;
-use std::collections::HashSet;
+use rayon::prelude::*;
 use std::fs::File;
 use std::io::{self, BufRead};
 use std::path::Path;
-use std::sync::{Arc, Mutex};
-use trie_rs::{Trie, TrieBuilder};
 
-fn main() {
-    let mut builder = TrieBuilder::new();
-    let mut word_set = HashSet::new();
-    // Read the word list file into a trie
-    match read_lines("./words.txt") {
-        Err(why) => panic!("Couldn't read word list: {}", why),
-        Ok(lines) => {
-            for line in lines {
-                match line {
-                    Err(why) => panic!("Couldn't read a word in the list: {}", why),
-                    Ok(word) => {
-                        builder.push(word.trim());
-                        word_set.insert(String::from(word.trim()));
-                    }
-                }
-            }
-        }
-    };
+fn main() -> ! {
+    // Read the word list into a vector, zip it with the word_power
+    // and character count, then sort it by word power, descending
+    let mut words: Vec<(String, f64, Vec<isize>)> = read_lines("./words.txt")
+        .expect("Words file should be in same directory.")
+        .into_iter()
+        .map(|line| {
+            let word = String::from(line.expect("Failed to read line in words file.").trim());
+            (word.clone(), word_power(&word), char_count(&word))
+        })
+        .collect();
 
-    let word_trie = builder.build();
+    words.par_sort_unstable_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
 
     loop {
         let mut input = String::new();
         println!("Enter the letters you have:");
         std::io::stdin().read_line(&mut input).unwrap();
+        input = String::from(input.trim());
+        let input_chars = char_count(&input);
 
-        let visited = Arc::new(Mutex::new(HashSet::new()));
-        let possible_words = Arc::new(Mutex::new(HashSet::new()));
-
-        fn process_queue<'a>(
-            input: String,
-            substring: String,
-            word_set: &'a HashSet<String>,
-            visited: &'a Arc<Mutex<HashSet<String>>>,
-            word_trie: &'a Trie<u8>,
-            possible_words: &'a Arc<Mutex<HashSet<String>>>,
-            scope: &Scope<'a>,
-        ) {
-            if word_set.contains(&substring) {
-                possible_words.lock().unwrap().insert(substring.clone());
-            }
-            if substring.len() == 16 {
-                return;
-            }
-            for (index, letter) in input.chars().enumerate() {
-                let create_child = |letter| {
-                    let mut new_string = substring.clone();
-                    new_string.push(letter);
-                    let mut new_input = input.clone();
-                    new_input.remove(index);
-                    let visit = !visited.lock().unwrap().contains(&new_string);
-                    let trim = word_trie.predictive_search(&new_string).len() == 0;
-                    if visit && !trim {
-                        visited.lock().unwrap().insert(new_string.clone());
-                        scope.spawn(move |s| {
-                            process_queue(
-                                new_input,
-                                new_string,
-                                word_set,
-                                &visited,
-                                word_trie,
-                                &possible_words,
-                                s,
-                            )
-                        });
-                    }
-                };
-                match letter {
-                    '?' => (b'a'..=b'z')
-                        .map(|l| l as char)
-                        .for_each(|l| create_child(l)),
-                    _ => create_child(letter),
-                }
-            }
-        }
-
-        rayon::scope(|s| {
-            process_queue(
-                input.clone(),
-                String::from(""),
-                &word_set,
-                &visited,
-                &word_trie,
-                &possible_words,
-                s,
-            )
-        });
-
-        let mut usable_words = possible_words
-            .lock()
-            .unwrap()
-            .clone()
+        let possible_words: Vec<(String, f64)> = words
+            .par_iter()
+            .filter(|word| can_spell(&word, &input_chars))
+            .map(|w| (w.0.clone(), w.1.clone()))
+            .collect::<Vec<(String, f64)>>()
             .into_iter()
-            .collect::<Vec<String>>();
-        usable_words.sort_unstable_by(|a, b| {
-            word_power(b)
-                .partial_cmp(&word_power(a))
-                .unwrap_or(Ordering::Equal)
-        });
-        println!(
-            "{:#?}",
-            usable_words
-                .iter()
-                .take(10)
-                .zip(usable_words.iter().take(10).map(|w| word_power(&w)))
-                .rev()
-                .collect::<Vec<(&String, f64)>>()
-        );
+            .rev()
+            .take(10)
+            .rev()
+            .collect();
+        println!("{:#?}", possible_words);
     }
 }
 
@@ -126,6 +46,7 @@ where
     Ok(io::BufReader::new(file).lines())
 }
 
+// Calculate the relative power of a given word
 fn word_power(word: &String) -> f64 {
     let mut length = 0.0;
     let mut letters = word.clone();
@@ -146,4 +67,41 @@ fn word_power(word: &String) -> f64 {
         }
     }
     length
+}
+
+// Count the number of each letter a word needs to be spelled
+fn char_count(word: &String) -> Vec<isize> {
+    let mut chars = vec![0; 27];
+    let mut letters = word.clone();
+    let root = 'a' as usize;
+    while letters.len() > 0 {
+        let index = letters.pop().expect("String ran out of letters early.") as usize;
+        // This handles ? characters
+        if index < root || index - root > 25 {
+            chars[26] += 1;
+        } else {
+            // If there's a 'q', take the 'u' as well
+            if index == 16 {
+                letters.pop();
+            }
+            chars[index - root] += 1;
+        }
+    }
+    chars
+}
+
+// Check if a word can be spelled given an input
+fn can_spell(word: &(String, f64, Vec<isize>), input: &Vec<isize>) -> bool {
+    let mut remaining_wildcards = input[26].clone();
+    for index in 0..26 {
+        let char_diff: isize = &input[index] - &word.2[index];
+        if char_diff < 0 {
+            if char_diff + remaining_wildcards < 0 {
+                return false;
+            } else {
+                remaining_wildcards += char_diff;
+            }
+        }
+    }
+    true
 }
