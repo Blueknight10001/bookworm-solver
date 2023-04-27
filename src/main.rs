@@ -19,7 +19,7 @@ fn main() -> ! {
 
     loop {
         let mut input = String::new();
-        println!("Enter the letters you have:");
+        println!("Enter the letters you have (all lowercase, 'Qu' == 'qu'):");
         std::io::stdin().read_line(&mut input).unwrap();
         input = String::from(input.trim());
         let input_chars = char_count(&input);
@@ -49,22 +49,20 @@ where
 // Calculate the relative power of a given word
 fn word_power(word: &String) -> f64 {
     let mut length = 0.0;
-    let mut letters = word.clone();
+    let mut letters: String = word.chars().rev().collect();
     while letters.len() > 0 {
-        if letters.len() > 1 && String::from("qu").eq(&letters[0..=1]) {
-            length += 2.75;
-            letters.pop();
-            letters.pop();
-        } else {
-            let letter = letters.pop();
-            length += match letter {
-                Some('b') | Some('c') | Some('f') | Some('h') | Some('m') | Some('p') => 1.25,
-                Some('v') | Some('w') | Some('y') => 1.5,
-                Some('j') | Some('k') => 1.75,
-                Some('x') | Some('z') => 2.0,
-                _ => 1.0,
-            };
-        }
+        let letter = letters.pop();
+        length += match letter {
+            Some('b') | Some('c') | Some('f') | Some('h') | Some('m') | Some('p') => 1.25,
+            Some('v') | Some('w') | Some('y') => 1.5,
+            Some('j') | Some('k') => 1.75,
+            Some('x') | Some('z') => 2.0,
+            Some('q') => {
+                letters.pop();
+                2.75
+            }
+            _ => 1.0,
+        };
     }
     length
 }
@@ -72,7 +70,7 @@ fn word_power(word: &String) -> f64 {
 // Count the number of each letter a word needs to be spelled
 fn char_count(word: &String) -> Vec<isize> {
     let mut chars = vec![0; 27];
-    let mut letters = word.clone();
+    let mut letters: String = word.chars().rev().collect();
     let root = 'a' as usize;
     while letters.len() > 0 {
         let index = letters.pop().expect("String ran out of letters early.") as usize;
@@ -81,7 +79,7 @@ fn char_count(word: &String) -> Vec<isize> {
             chars[26] += 1;
         } else {
             // If there's a 'q', take the 'u' as well
-            if index == 16 {
+            if index - root == 16 {
                 letters.pop();
             }
             chars[index - root] += 1;
