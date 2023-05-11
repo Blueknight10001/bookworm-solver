@@ -12,10 +12,14 @@ fn main() -> ! {
     // and character count, then sort it by word power, descending
     let mut words: Vec<(String, f64, [isize; 27])> = read_lines("./words.txt")
         .expect("Words file should be in same directory.")
-        .into_iter()
+        .collect::<Result<Vec<String>, _>>()
+        .unwrap()
+        .into_par_iter()
         .map(|line| {
-            let word = String::from(line.expect("Failed to read line in words file.").trim());
-            (word.clone(), word_power(&word), char_count(&word))
+            let word = String::from(line.trim());
+            let power = word_power(&word);
+            let count = char_count(&word);
+            (word, power, count)
         })
         .collect();
 
@@ -23,7 +27,7 @@ fn main() -> ! {
     words.par_sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
     println!(
-        "Time taken to generate word list: {}",
+        "Time taken to generate word list: {}ms",
         start.elapsed().as_millis()
     );
 
@@ -81,8 +85,8 @@ fn main() -> ! {
             .collect();
         find_time += start.elapsed().as_micros();
     }
-    println!("Word set average count time: {}", count_time / 1000);
-    println!("Word set average find time: {}", find_time / 1000);
+    println!("Word set average count time: {}us", count_time / 1000);
+    println!("Word set average find time: {}us", find_time / 1000);
 
     // Repeatedly ask for user input, and give the 10
     // best words that can be spelled from that input
@@ -104,7 +108,7 @@ fn main() -> ! {
             .rev()
             .collect();
         let time_taken = start.elapsed().as_micros();
-        println!("{:#?}, {}", possible_words, time_taken);
+        println!("{:#?}, {}us", possible_words, time_taken);
     }
 }
 
