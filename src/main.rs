@@ -24,7 +24,13 @@ fn main() -> ! {
         .collect();
 
     // Sort the list of words from most to least powerful
-    words.par_sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
+    words.par_sort_unstable_by(|a, b| {
+        if a.1 == b.1 {
+            a.0.len().partial_cmp(&b.0.len()).unwrap()
+        } else {
+            b.1.partial_cmp(&a.1).unwrap()
+        }
+    });
 
     println!(
         "Time taken to generate word list: {}ms",
@@ -32,7 +38,7 @@ fn main() -> ! {
     );
 
     // Shows the distribution of characters in the word list
-    let mut total_chars: Vec<(isize, char)> = words
+    let mut char_dist: Vec<(isize, char)> = words
         .iter()
         .map(|w| w.2.clone())
         .reduce(|sum, count| {
@@ -49,15 +55,15 @@ fn main() -> ! {
         .zip('a'..='z')
         .collect::<Vec<(isize, char)>>();
 
-    total_chars.sort_by(|a, b| a.0.cmp(&b.0));
-    let total_total_chars = total_chars.iter().map(|t| t.0).sum::<isize>();
-    // println!("{:#?}, {}", total_chars, total_total_chars);
+    char_dist.sort_by(|a, b| a.0.cmp(&b.0));
+    let total_chars = char_dist.iter().map(|t| t.0).sum::<isize>();
+    // println!("{:#?}, {}", char_dist, total_chars);
     // eisarntolcdupmghbyfvkwzxqj
 
     let weights: [f64; 26] = <[f64; 26]>::try_from(
-        total_chars
+        char_dist
             .iter()
-            .map(|t| (t.0 as f64) / (total_total_chars as f64))
+            .map(|t| (t.0 as f64) / (total_chars as f64))
             .collect::<Vec<f64>>(),
     )
     .unwrap();
@@ -66,9 +72,15 @@ fn main() -> ! {
     let mut count_time = 0;
     let mut find_time = 0;
     let mut rng = thread_rng();
-    for _ in 0..1000 {
+    for _ in 0..10000 {
         let mut test_string: String = String::new();
-        (0..=16).for_each(|_| test_string.push(charset[dist.sample(&mut rng)]));
+        (0..16).for_each(|_| {
+            let letter = charset[dist.sample(&mut rng)];
+            match letter {
+                'q' => test_string += "qu",
+                _ => test_string.push(letter),
+            }
+        });
 
         let start = Instant::now();
         let input_chars = char_count(&test_string);
@@ -85,8 +97,8 @@ fn main() -> ! {
             .collect();
         find_time += start.elapsed().as_micros();
     }
-    println!("Word set average count time: {}us", count_time / 1000);
-    println!("Word set average find time: {}us", find_time / 1000);
+    println!("Word set average count time: {}ns", count_time / 10000);
+    println!("Word set average find time: {}us", find_time / 10000);
 
     // Repeatedly ask for user input, and give the 10
     // best words that can be spelled from that input
@@ -141,6 +153,7 @@ fn word_power(word: &String) -> f64 {
 }
 
 // Count the number of each letter a word needs to be spelled
+// eisarntolcdupmghbyfvkwzxqj
 fn char_count(word: &String) -> [isize; 27] {
     let mut chars = [0; 27];
     let root = 'a' as usize;
